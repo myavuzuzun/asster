@@ -76,7 +76,7 @@ install: vestige vst3
 	@echo Installation complete!
 
 package: vestige vst3 standalone
-	@powershell -ExecutionPolicy Bypass -Command "$$p='dist/package'; if (Test-Path $$p) { Remove-Item -Recurse -Force $$p }; New-Item -ItemType Directory -Path $$p | Out-Null; Copy-Item 'dist/Asster.dll', 'dist/Asster.vst3', 'bin/asster_standalone.exe' -Destination $$p; Copy-Item 'package_README.txt' -Destination \"$$p/README.txt\" -Force; Compress-Archive -Path 'dist/package/*' -DestinationPath 'dist/Asster_Windows_x64.zip' -Force; Copy-Item 'dist/Asster_Windows_x64.zip' -Destination 'Asster_Windows_x64.zip' -Force"
+	@powershell -ExecutionPolicy Bypass -Command "$$p='dist/package'; if (Test-Path $$p) { Remove-Item -Recurse -Force $$p }; New-Item -ItemType Directory -Path $$p | Out-Null; Copy-Item 'dist/Asster.dll', 'dist/Asster.vst3', 'bin/asster_standalone.exe' -Destination $$p; if (Test-Path 'README.md') { Copy-Item 'README.md' -Destination $$p }; Compress-Archive -Path 'dist/package/*' -DestinationPath 'dist/Asster_Windows_x64.zip' -Force; Copy-Item 'dist/Asster_Windows_x64.zip' -Destination 'Asster_Windows_x64.zip' -Force"
 	@echo Package created: dist/Asster_Windows_x64.zip and Asster_Windows_x64.zip
 
 clean:

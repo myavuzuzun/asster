@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Continue"
+﻿$ErrorActionPreference = "Continue"
 
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  ASSTER Mastering Tool - Windows x64 Build System" -ForegroundColor Cyan
@@ -57,8 +57,8 @@ Write-Host "`nCreating distribution zip..." -ForegroundColor Yellow
 $pkg = "dist/package"
 if (-not (Test-Path $pkg)) { New-Item -ItemType Directory -Path $pkg | Out-Null }
 Copy-Item "dist/Asster.dll", "dist/Asster.vst3", "bin/asster_standalone.exe" -Destination $pkg -Force
-if (Test-Path "package_README.txt") {
-    Copy-Item "package_README.txt" -Destination "$pkg/README.txt" -Force
+if (Test-Path "README.md") {
+    Copy-Item "README.md" -Destination $pkg -Force
 }
 Compress-Archive -Path "dist/package/*" -DestinationPath "dist/Asster_Windows_x64.zip" -Force
 Copy-Item "dist/Asster_Windows_x64.zip" -Destination "Asster_Windows_x64.zip" -Force
