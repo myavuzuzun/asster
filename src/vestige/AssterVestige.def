@@ -1,0 +1,4 @@
+LIBRARY Asster
+EXPORTS
+    VSTPluginMain
+    main=VSTPluginMain
