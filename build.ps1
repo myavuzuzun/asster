@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Continue"
 
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host "  ASSTER Mastering Tool - Windows x64 Build System" -ForegroundColor Cyan
