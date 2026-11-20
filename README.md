@@ -64,14 +64,6 @@ or
 
 ```
 mastering plugin/
-├── dist/
-│   ├── Asster.dll            # 64-bit Windows plugin DLL (VeSTige)
-│   ├── Asster.vst3           # 64-bit Windows VST3 plugin DLL (GPLv3)
-│   └── Asster_Windows_x64.zip# distribution package
-├── bin/
-│   ├── asster_test.exe       # verification test suite 
-│   ├── asster_standalone.exe # standalone desktop testing application
-│   └── test_vst3_loader.exe  # VST3 test harness
 ├── include/
 │   ├── vestige/vestige.h     # open-source VeSTige header (GPL)
 │   ├── vst3.h                # single-header VST3 framework (GPLv3)
