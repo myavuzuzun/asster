@@ -94,7 +94,7 @@ public:
         fx.numParams = Asster::NUM_PARAMS;
         fx.numInputs = 2;
         fx.numOutputs = 2;
-        fx.flags = effFlagsHasEditor | effFlagsCanReplacing | effFlagsCanDoubleReplacing;
+        fx.flags = effFlagsHasEditor | effFlagsCanReplacing | effFlagsCanDoubleReplacing | effFlagsProgramChunks;
         fx.uniqueID = CCONST('A', 'S', 'S', 'T');
         fx.version = 1000;
         fx.object = this;
@@ -171,6 +171,7 @@ public:
         const auto* defs = Asster::getParameterDefs();
         float denorm = defs[index].minVal + parameter * (defs[index].maxVal - defs[index].minVal);
         self->engine.setParameter(index, denorm);
+        self->effectBlock.fx.initialDelay = self->engine.getLatencySamples();
 
         if (self->ui) {
             self->ui->redraw();
@@ -231,6 +232,24 @@ public:
                     engine.loadPreset(currentProgram);
                     if (ui) ui->redraw();
                     return 1;
+                }
+                return 0;
+
+            case effGetChunk:
+                if (ptr) {
+                    engine.serializeState(chunkBuffer);
+                    *reinterpret_cast<void**>(ptr) = chunkBuffer.data();
+                    return static_cast<intptr_t>(chunkBuffer.size());
+                }
+                return 0;
+
+            case effSetChunk:
+                if (ptr && value > 0) {
+                    if (engine.deserializeState(ptr, static_cast<size_t>(value))) {
+                        effectBlock.fx.initialDelay = engine.getLatencySamples();
+                        if (ui) ui->redraw();
+                        return 1;
+                    }
                 }
                 return 0;
 
@@ -366,6 +385,7 @@ private:
     ERect editorRect;
     int32_t currentProgram;
     Asster::AssterEngine engine;
+    std::vector<uint8_t> chunkBuffer;
     std::unique_ptr<Asster::WinMasteringUI> ui;
 };
 

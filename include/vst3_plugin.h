@@ -351,6 +351,7 @@ public:
   virtual VST3_Editor*  on_openEditor(void* AParent) { return nullptr; }
   virtual void          on_closeEditor(VST3_Editor* AEditor) {}
   virtual void          on_updateEditor(VST3_Editor* AEditor) {}
+  virtual uint32_t      on_getLatencySamples() { return 0; }
   virtual uint32_t      on_saveState(void** ABuffer, uint32_t AMode) { *ABuffer = nullptr; return 0; }
   virtual void          on_restoreState(uint32_t ASize, void* APointer, uint32_t AMode) {}
 
@@ -873,7 +874,7 @@ public:
   }
 
   uint32 PLUGIN_API getLatencySamples() final {
-    return 0;
+    return on_getLatencySamples();
   }
 
   tresult PLUGIN_API setupProcessing(ProcessSetup& setup) final {

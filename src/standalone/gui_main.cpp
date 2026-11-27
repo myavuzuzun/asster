@@ -38,7 +38,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     HWND hostHwnd = CreateWindowExW(
         0, HOST_CLASS,
-        L"ASSTER — Mastering Tool (Windows x64 Native Host)",
+        L"Mastering Processor — Standalone",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT,
         winW, winH,

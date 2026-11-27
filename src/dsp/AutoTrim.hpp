@@ -56,6 +56,11 @@ public:
     bool isLearnComplete() const { return learningComplete; }
 
     float getCalibratedGainDb() const { return calibratedGainDb; }
+    void setCalibratedGainDb(float db) {
+        calibratedGainDb = std::clamp(db, -30.0f, 30.0f);
+        targetGainLinear = std::pow(10.0f, (calibratedGainDb + manualTrimDb) / 20.0f);
+        currentGainLinear = targetGainLinear;
+    }
     void setManualTrimDb(float db) {
         manualTrimDb = db;
         targetGainLinear = std::pow(10.0f, (calibratedGainDb + manualTrimDb) / 20.0f);

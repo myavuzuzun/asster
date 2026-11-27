@@ -118,6 +118,24 @@ public:
         engine.setSampleRate(sampleRate);
     }
 
+    uint32_t on_getLatencySamples() override {
+        return static_cast<uint32_t>(engine.getLatencySamples());
+    }
+
+    uint32_t on_saveState(void** ABuffer, uint32_t /*AMode*/) override {
+        engine.serializeState(savedStateBuf);
+        *ABuffer = savedStateBuf.data();
+        return static_cast<uint32_t>(savedStateBuf.size());
+    }
+
+    void on_restoreState(uint32_t ASize, void* APointer, uint32_t /*AMode*/) override {
+        if (engine.deserializeState(APointer, ASize)) {
+            if (activeEditor) {
+                activeEditor->updateParameterFromHost(0, 0.0f);
+            }
+        }
+    }
+
     void on_parameter(uint32_t index, float value, uint32_t /*mode*/) override {
         if (index < Asster::NUM_PARAMS) {
             const auto* defs = Asster::getParameterDefs();
@@ -158,6 +176,7 @@ public:
 private:
     Asster::AssterEngine engine;
     AssterVST3EditorWrapper* activeEditor = nullptr;
+    std::vector<uint8_t> savedStateBuf;
 };
 
 VST3_ENTRYPOINT(AssterDescriptor, AssterInstance)

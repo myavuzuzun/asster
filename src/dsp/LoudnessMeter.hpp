@@ -3,29 +3,39 @@
 #include <vector>
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include "Biquad.hpp"
 
 namespace Asster {
 
-// ITU-R BS.1770 / EBU R128 Compliant Loudness & Inter-Sample True Peak Meter
+// ITU-R BS.1770 / EBU R128 Compliant Loudness, True Peak, Phase Correlation & UI Telemetry
 class LoudnessMeter {
 public:
+    static constexpr int FFT_SIZE = 2048;
+    static constexpr int SCOPE_SIZE = 256;
+    static constexpr int HISTORY_SIZE = 256;
+
+    struct HistoryPoint {
+        float peak = 0.0f;
+        float limGr = 0.0f;
+        float glueGr = 0.0f;
+        float clipAct = 0.0f;
+    };
+
     LoudnessMeter() {
         init(44100.0f);
     }
 
     void init(float sampleRate) {
         sr = (sampleRate > 8000.0f) ? sampleRate : 44100.0f;
-        
+
         // Stage 1: High-shelf pre-filter (+4 dB at 1.5 kHz)
-        filterPreL.setParams(FilterType::HighShelf, sr, 1500.0f, 0.7071f, 4.0f);
-        filterPreR.setParams(FilterType::HighShelf, sr, 1500.0f, 0.7071f, 4.0f);
-        
+        filterPre.setParams(FilterType::HighShelf, sr, 1500.0f, 0.7071f, 4.0f);
+
         // Stage 2: RLB High-pass filter (38 Hz)
-        filterHpL.setParams(FilterType::HighPass, sr, 38.0f, 0.5f, 0.0f);
-        filterHpR.setParams(FilterType::HighPass, sr, 38.0f, 0.5f, 0.0f);
-        
-        momentaryBufferSize = static_cast<int>(sr * 0.400f); // 400ms window
+        filterHp.setParams(FilterType::HighPass, sr, 38.0f, 0.5f, 0.0f);
+
+        momentaryBufferSize = static_cast<int>(sr * 0.400f);
         if (momentaryBufferSize < 64) momentaryBufferSize = 64;
         energyBufferL.assign(momentaryBufferSize, 0.0f);
         energyBufferR.assign(momentaryBufferSize, 0.0f);
@@ -33,7 +43,7 @@ public:
         sumEnergyL = 0.0f;
         sumEnergyR = 0.0f;
 
-        shortTermSize = static_cast<int>(sr * 3.0f); // 3s window
+        shortTermSize = static_cast<int>(sr * 3.0f);
         if (shortTermSize < 128) shortTermSize = 128;
         shortTermBufferL.assign(shortTermSize, 0.0f);
         shortTermBufferR.assign(shortTermSize, 0.0f);
@@ -46,46 +56,83 @@ public:
 
         maxTruePeak = 0.0f;
         truePeakDecay = 0.0f;
-        
-        prevL = 0.0f;
-        prevR = 0.0f;
-        prev2L = 0.0f;
-        prev2R = 0.0f;
+        corrCoeff = 1.0f - std::exp(-1.0f / (sr * 0.150f));
+        corrNum = 0.0f;
+        corrDenL = 0.0f;
+        corrDenR = 0.0f;
+        correlation.store(1.0f, std::memory_order_relaxed);
+
+        prevL = prevR = prev2L = prev2R = 0.0f;
+
+        std::fill(std::begin(fftRing), std::end(fftRing), 0.0f);
+        fftWritePos.store(0, std::memory_order_relaxed);
+        std::fill(std::begin(preFftRing), std::end(preFftRing), 0.0f);
+        preFftWritePos.store(0, std::memory_order_relaxed);
+
+        std::fill(std::begin(scopeL), std::end(scopeL), 0.0f);
+        std::fill(std::begin(scopeR), std::end(scopeR), 0.0f);
+        scopeWritePos.store(0, std::memory_order_relaxed);
+
+        for (int i = 0; i < HISTORY_SIZE; ++i) historyRing[i] = HistoryPoint{};
+        historyWritePos.store(0, std::memory_order_relaxed);
+
+        lraSampleAccum = 0;
+        lraCount = 0;
+        lraIdx = 0;
+        std::fill(std::begin(lraSamples), std::end(lraSamples), -90.0f);
     }
 
     void reset() {
         init(sr);
     }
 
-    // Process a block of stereo samples
+    void setTelemetryEnabled(bool en) {
+        telemetryEnabled = en;
+    }
+
     void process(const float* left, const float* right, int numSamples) {
         if (!left || numSamples <= 0) return;
 
         float blockMaxTP = 0.0f;
+        uint32_t fPos = fftWritePos.load(std::memory_order_relaxed);
+        uint32_t sPos = scopeWritePos.load(std::memory_order_relaxed);
 
         for (int i = 0; i < numSamples; ++i) {
             float inL = left[i];
             float inR = right ? right[i] : inL;
 
-            // 1. Inter-Sample True Peak estimation via 4x cubic Hermite oversampling
+            if (telemetryEnabled) {
+                fftRing[fPos & (FFT_SIZE - 1)] = 0.5f * (inL + inR);
+                ++fPos;
+
+                if ((i & 3) == 0) {
+                    scopeL[sPos & (SCOPE_SIZE - 1)] = inL;
+                    scopeR[sPos & (SCOPE_SIZE - 1)] = inR;
+                    ++sPos;
+                }
+
+                corrNum  += (inL * inR - corrNum) * corrCoeff;
+                corrDenL += (inL * inL - corrDenL) * corrCoeff;
+                corrDenR += (inR * inR - corrDenR) * corrCoeff;
+            }
+
+            // 1. Inter-Sample True Peak estimation
             float tpL = estimateTruePeak(inL, prevL, prev2L);
             float tpR = estimateTruePeak(inR, prevR, prev2R);
-            prev2L = prevL;
-            prevL = inL;
-            prev2R = prevR;
-            prevR = inR;
+            prev2L = prevL; prevL = inL;
+            prev2R = prevR; prevR = inR;
 
             float sampleTP = std::max(tpL, tpR);
             if (sampleTP > blockMaxTP) blockMaxTP = sampleTP;
 
             // 2. K-Weighting filters for LUFS
-            float kL = filterHpL.process(filterPreL.process(inL));
-            float kR = filterHpR.process(filterPreR.process(inR));
+            __m128 kVec = filterHp.processVec(filterPre.processVec(_mm_set_ps(0.0f, 0.0f, inR, inL)));
+            alignas(16) float kArr[4];
+            _mm_store_ps(kArr, kVec);
+            float eL = kArr[0] * kArr[0];
+            float eR = kArr[1] * kArr[1];
 
-            float eL = kL * kL;
-            float eR = kR * kR;
-
-            // Momentary (400ms) sliding window
+            // Momentary (400ms)
             sumEnergyL -= energyBufferL[bufIndex];
             sumEnergyR -= energyBufferR[bufIndex];
             energyBufferL[bufIndex] = eL;
@@ -94,7 +141,7 @@ public:
             sumEnergyR += eR;
             if (++bufIndex >= momentaryBufferSize) bufIndex = 0;
 
-            // Short-Term (3s) sliding window
+            // Short-Term (3s)
             stSumEnergyL -= shortTermBufferL[stIndex];
             stSumEnergyR -= shortTermBufferR[stIndex];
             shortTermBufferL[stIndex] = eL;
@@ -103,16 +150,22 @@ public:
             stSumEnergyR += eR;
             if (++stIndex >= shortTermSize) stIndex = 0;
 
-            // Integrated accumulator
             integratedEnergySum += (eL + eR);
             integratedSampleCount++;
         }
 
-        // Update True Peak meter with smooth decay
+        if (telemetryEnabled) {
+            fftWritePos.store(fPos, std::memory_order_release);
+            scopeWritePos.store(sPos, std::memory_order_release);
+
+            float denom = std::sqrt(std::max(0.0f, corrDenL * corrDenR));
+            float corrVal = (denom > 1e-9f) ? std::clamp(corrNum / denom, -1.0f, 1.0f) : 1.0f;
+            correlation.store(corrVal, std::memory_order_relaxed);
+        }
+
         if (blockMaxTP > truePeakDecay) {
             truePeakDecay = blockMaxTP;
         } else {
-            // Decay ~20 dB per second
             float decayFactor = std::pow(0.1f, static_cast<float>(numSamples) / sr);
             truePeakDecay *= decayFactor;
             if (truePeakDecay < 1e-7f) truePeakDecay = 0.0f;
@@ -129,9 +182,82 @@ public:
         if (std::abs(prevR) < 1e-15f) prevR = 0.0f;
         if (std::abs(prev2L) < 1e-15f) prev2L = 0.0f;
         if (std::abs(prev2R) < 1e-15f) prev2R = 0.0f;
+
+        // Sample short-term LUFS every ~0.25s for LRA calculation
+        if (telemetryEnabled) {
+            lraSampleAccum += numSamples;
+            if (lraSampleAccum >= static_cast<int>(sr * 0.25f)) {
+                lraSampleAccum = 0;
+                float st = getShortTermLUFS();
+                if (st > -60.0f) {
+                    lraSamples[lraIdx] = st;
+                    lraIdx = (lraIdx + 1) & 63;
+                    if (lraCount < 64) lraCount++;
+                }
+            }
+        }
     }
 
-    // Get Momentary Loudness in LUFS (400ms)
+    void pushHistory(float peak, float limGr, float glueGr, float clipAct) {
+        uint32_t pos = historyWritePos.load(std::memory_order_relaxed);
+        historyRing[pos & (HISTORY_SIZE - 1)] = { peak, limGr, glueGr, clipAct };
+        historyWritePos.store(pos + 1, std::memory_order_release);
+    }
+
+    void pushPreSamples(const float* left, const float* right, int numSamples) {
+        if (!left || numSamples <= 0) return;
+        uint32_t pos = preFftWritePos.load(std::memory_order_relaxed);
+        for (int i = 0; i < numSamples; ++i) {
+            float inL = left[i];
+            float inR = right ? right[i] : inL;
+            preFftRing[pos & (FFT_SIZE - 1)] = 0.5f * (inL + inR);
+            ++pos;
+        }
+        preFftWritePos.store(pos, std::memory_order_release);
+    }
+
+    void copyPreFFTSamples(float* dst, int count) const {
+        if (!dst || count <= 0) return;
+        int n = std::min(count, FFT_SIZE);
+        uint32_t wp = preFftWritePos.load(std::memory_order_acquire);
+        uint32_t start = wp - static_cast<uint32_t>(n);
+        for (int i = 0; i < n; ++i) {
+            dst[i] = preFftRing[(start + static_cast<uint32_t>(i)) & (FFT_SIZE - 1)];
+        }
+    }
+
+    void copyRecentSamples(float* dst, int count) const {
+        if (!dst || count <= 0) return;
+        int n = std::min(count, FFT_SIZE);
+        uint32_t wp = fftWritePos.load(std::memory_order_acquire);
+        uint32_t start = wp - static_cast<uint32_t>(n);
+        for (int i = 0; i < n; ++i) {
+            dst[i] = fftRing[(start + static_cast<uint32_t>(i)) & (FFT_SIZE - 1)];
+        }
+    }
+
+    void copyScopeSamples(float* dstL, float* dstR, int count) const {
+        if (!dstL || !dstR || count <= 0) return;
+        int n = std::min(count, SCOPE_SIZE);
+        uint32_t wp = scopeWritePos.load(std::memory_order_acquire);
+        uint32_t start = wp - static_cast<uint32_t>(n);
+        for (int i = 0; i < n; ++i) {
+            uint32_t idx = (start + static_cast<uint32_t>(i)) & (SCOPE_SIZE - 1);
+            dstL[i] = scopeL[idx];
+            dstR[i] = scopeR[idx];
+        }
+    }
+
+    void copyHistory(HistoryPoint* dst, int count) const {
+        if (!dst || count <= 0) return;
+        int n = std::min(count, HISTORY_SIZE);
+        uint32_t wp = historyWritePos.load(std::memory_order_acquire);
+        uint32_t start = wp - static_cast<uint32_t>(n);
+        for (int i = 0; i < n; ++i) {
+            dst[i] = historyRing[(start + static_cast<uint32_t>(i)) & (HISTORY_SIZE - 1)];
+        }
+    }
+
     float getMomentaryLUFS() const {
         float meanL = std::max(0.0f, sumEnergyL) / static_cast<float>(momentaryBufferSize);
         float meanR = std::max(0.0f, sumEnergyR) / static_cast<float>(momentaryBufferSize);
@@ -140,7 +266,6 @@ public:
         return -0.691f + 10.0f * std::log10(power);
     }
 
-    // Get Short-Term Loudness in LUFS (3s)
     float getShortTermLUFS() const {
         float meanL = std::max(0.0f, stSumEnergyL) / static_cast<float>(shortTermSize);
         float meanR = std::max(0.0f, stSumEnergyR) / static_cast<float>(shortTermSize);
@@ -149,7 +274,6 @@ public:
         return -0.691f + 10.0f * std::log10(power);
     }
 
-    // Get Integrated Loudness in LUFS since last reset
     float getIntegratedLUFS() const {
         if (integratedSampleCount < static_cast<uint64_t>(sr * 0.5f)) {
             return getShortTermLUFS();
@@ -159,16 +283,48 @@ public:
         return -0.691f + 10.0f * static_cast<float>(std::log10(mean));
     }
 
-    // Get Current True Peak in dBTP
     float getTruePeakdBTP() const {
         if (truePeakDecay <= 1e-7f) return -90.0f;
         return 20.0f * std::log10(truePeakDecay);
     }
 
-    // Get Peak True Peak (historic max) in dBTP
+    float getCurrentBlockPeakLinear() const {
+        return truePeakDecay;
+    }
+
     float getMaxTruePeakdBTP() const {
         if (maxTruePeak <= 1e-7f) return -90.0f;
         return 20.0f * std::log10(maxTruePeak);
+    }
+
+    float getCorrelation() const {
+        return correlation.load(std::memory_order_relaxed);
+    }
+
+    // Peak-to-Loudness Ratio (Crest Factor in dB)
+    float getPLR() const {
+        float st = getShortTermLUFS();
+        if (st <= -60.0f) return 0.0f;
+        return std::clamp(getTruePeakdBTP() - st, 0.0f, 30.0f);
+    }
+
+    // Loudness Range (LRA in LU, P95 - P10 of recent short-term LUFS)
+    float getLRA() const {
+        if (lraCount < 4) return 0.0f;
+        float tmp[64];
+        int n = lraCount;
+        for (int i = 0; i < n; ++i) tmp[i] = lraSamples[i];
+        std::sort(tmp, tmp + n);
+        int i10 = (n * 10) / 100;
+        int i95 = std::min(n - 1, (n * 95) / 100);
+        return std::max(0.0f, tmp[i95] - tmp[i10]);
+    }
+
+    // Spotify (-14 LUFS) normalization penalty in dB (0 dB or negative)
+    float getSpotifyPenaltyDb() const {
+        float integ = getIntegratedLUFS();
+        if (integ <= -60.0f) return 0.0f;
+        return std::min(0.0f, -14.0f - integ);
     }
 
     void resetMaxTruePeak() {
@@ -176,12 +332,8 @@ public:
     }
 
 private:
-    // 4x oversampled cubic peak estimation
     inline float estimateTruePeak(float curr, float p1, float p2) {
         float peak = std::abs(curr);
-        // Inter-sample point 1: t = 0.5 (midpoint between p1 and curr)
-        // Cubic Hermite midpoint: (-p2 + 9*p1 + 9*curr - next) / 16
-        // Approximation using available history:
         float mid1 = 0.5f * (p1 + curr) + 0.125f * (p1 - p2);
         float mid2 = 0.5f * (curr + p1) - 0.125f * (curr - p1);
         peak = std::max(peak, std::abs(mid1));
@@ -190,8 +342,9 @@ private:
     }
 
     float sr = 44100.0f;
-    Biquad filterPreL, filterPreR;
-    Biquad filterHpL, filterHpR;
+    bool telemetryEnabled = false;
+    StereoBiquad filterPre;
+    StereoBiquad filterHp;
 
     int momentaryBufferSize = 17640;
     std::vector<float> energyBufferL;
@@ -214,6 +367,29 @@ private:
     float truePeakDecay = 0.0f;
     float prevL = 0.0f, prevR = 0.0f;
     float prev2L = 0.0f, prev2R = 0.0f;
+
+    float corrCoeff = 0.0001f;
+    float corrNum = 0.0f;
+    float corrDenL = 0.0f;
+    float corrDenR = 0.0f;
+    std::atomic<float> correlation{1.0f};
+
+    float fftRing[FFT_SIZE] = {0.0f};
+    std::atomic<uint32_t> fftWritePos{0};
+    float preFftRing[FFT_SIZE] = {0.0f};
+    std::atomic<uint32_t> preFftWritePos{0};
+
+    float scopeL[SCOPE_SIZE] = {0.0f};
+    float scopeR[SCOPE_SIZE] = {0.0f};
+    std::atomic<uint32_t> scopeWritePos{0};
+
+    HistoryPoint historyRing[HISTORY_SIZE];
+    std::atomic<uint32_t> historyWritePos{0};
+
+    float lraSamples[64] = {0.0f};
+    int lraCount = 0;
+    int lraIdx = 0;
+    int lraSampleAccum = 0;
 };
 
 } // namespace Asster

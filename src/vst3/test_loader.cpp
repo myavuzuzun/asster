@@ -81,7 +81,7 @@ public:
 };
 
 int main(int argc, char* argv[]) {
-    const char* dllPath = (argc > 1) ? argv[1] : "dist/FraudizePre.vst3";
+    const char* dllPath = (argc > 1) ? argv[1] : "dist/Asster.vst3";
     printf("Loading: %s\n", dllPath);
 
     HMODULE hMod = LoadLibraryA(dllPath);

@@ -3,8 +3,8 @@ CXX ?= g++
 # -------------------------------------------------------------
 # Windows 64-bit Build Configuration (Direct2D / DirectWrite)
 # -------------------------------------------------------------
-CXXFLAGS ?= -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -static
-UI_LIBS = -ld2d1 -ldwrite -lole32 -lgdi32 -luser32
+CXXFLAGS ?= -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -ffp-contract=fast -fno-signed-zeros -funroll-loops -static
+UI_LIBS = -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -lcomdlg32
 
 DIST_DIR = dist
 BIN_DIR = bin

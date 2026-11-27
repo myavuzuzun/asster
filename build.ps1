@@ -21,26 +21,26 @@ function Sign-Binary($filePath) {
 }
 
 Write-Host "[1/3] Building & Running DSP Test Suite..." -ForegroundColor Yellow
-g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math src/standalone/main.cpp -o bin/asster_test.exe
+g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -ffp-contract=fast -fno-signed-zeros -funroll-loops src/standalone/main.cpp -o bin/asster_test.exe
 Sign-Binary "bin/asster_test.exe"
 & .\bin\asster_test.exe
 if ($LASTEXITCODE -ne 0) { throw "DSP test suite failed." }
 
 Write-Host "[2/4] Building VeSTige Plugin (dist/Asster.dll)..." -ForegroundColor Yellow
-g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -shared -static src/vestige/AssterVestige.cpp src/vestige/AssterVestige.def -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -o dist/Asster.dll
+g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -ffp-contract=fast -fno-signed-zeros -funroll-loops -shared -static src/vestige/AssterVestige.cpp src/vestige/AssterVestige.def -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -lcomdlg32 -o dist/Asster.dll
 Sign-Binary "dist/Asster.dll"
 & powershell -ExecutionPolicy Bypass -File .\test_vestige.ps1
 Write-Host "✓ Built, verified, and signed dist/Asster.dll" -ForegroundColor Green
 
 Write-Host "[3/4] Building VST3 Plugin (dist/Asster.vst3)..." -ForegroundColor Yellow
-g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Wno-unused-parameter -Wno-unused-private-field -Iinclude -fno-math-errno -fno-trapping-math -shared -static src/vst3/AssterVST3.cpp src/vst3/AssterVST3.def -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -o dist/Asster.vst3
+g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Wno-unused-parameter -Wno-unused-private-field -Iinclude -fno-math-errno -fno-trapping-math -ffp-contract=fast -fno-signed-zeros -funroll-loops -shared -static src/vst3/AssterVST3.cpp src/vst3/AssterVST3.def -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -lcomdlg32 -o dist/Asster.vst3
 Sign-Binary "dist/Asster.vst3"
 g++ -O2 -std=c++17 -Iinclude -Wall -Wextra -Wno-unused-parameter -Wno-unused-private-field src/vst3/test_loader.cpp -o bin/test_vst3_loader.exe
 & .\bin\test_vst3_loader.exe "dist\Asster.vst3"
 Write-Host "✓ Built, verified, and signed dist/Asster.vst3" -ForegroundColor Green
 
 Write-Host "[4/4] Building Standalone Host (bin/asster_standalone.exe)..." -ForegroundColor Yellow
-g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -static src/standalone/gui_main.cpp -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -o bin/asster_standalone.exe
+g++ -O3 -mavx2 -mfma -std=c++17 -Wall -Wextra -Iinclude -fno-math-errno -fno-trapping-math -ffp-contract=fast -fno-signed-zeros -funroll-loops -static src/standalone/gui_main.cpp -ld2d1 -ldwrite -lole32 -lgdi32 -luser32 -lcomdlg32 -o bin/asster_standalone.exe
 Sign-Binary "bin/asster_standalone.exe"
 Write-Host "✓ Built and signed bin/asster_standalone.exe" -ForegroundColor Green
 

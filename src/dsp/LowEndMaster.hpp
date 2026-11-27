@@ -18,14 +18,10 @@ public:
     }
 
     void reset() {
-        subHpL1.reset();
-        subHpL2.reset();
-        subHpR1.reset();
-        subHpR2.reset();
-        crossoverLpL.reset();
-        crossoverLpR.reset();
-        crossoverHpL.reset();
-        crossoverHpR.reset();
+        subHp1.reset();
+        subHp2.reset();
+        crossoverLp.reset();
+        crossoverHp.reset();
     }
 
     void setSubCutFreq(float freqHz) {
@@ -52,45 +48,49 @@ public:
         for (int i = 0; i < numSamples; ++i) {
             float inL = left[i];
             float inR = right ? right[i] : inL;
+            __m128 v = _mm_set_ps(0.0f, 0.0f, inR, inL);
 
             // 1. Subsonic High-Pass (18-24 dB/oct steep slope via cascaded biquads)
             if (subCutEnabled) {
-                inL = subHpL2.process(subHpL1.process(inL));
-                inR = subHpR2.process(subHpR1.process(inR));
+                v = subHp2.processVec(subHp1.processVec(v));
             }
 
             // 2. Mono-Bass Crossover
             if (monoEnabled && right) {
-                float lowL = crossoverLpL.process(inL);
-                float lowR = crossoverLpR.process(inR);
-                float highL = crossoverHpL.process(inL);
-                float highR = crossoverHpR.process(inR);
+                __m128 lowV = crossoverLp.processVec(v);
+                __m128 highV = crossoverHp.processVec(v);
+
+                alignas(16) float lowArr[4], highArr[4];
+                _mm_store_ps(lowArr, lowV);
+                _mm_store_ps(highArr, highV);
 
                 // Sum low frequencies to mono (0.5 * (L + R))
-                float monoLow = 0.5f * (lowL + lowR);
-
-                inL = monoLow + highL;
-                inR = monoLow + highR;
+                float monoLow = 0.5f * (lowArr[0] + lowArr[1]);
+                left[i] = monoLow + highArr[0];
+                right[i] = monoLow + highArr[1];
+            } else {
+                alignas(16) float outArr[4];
+                _mm_store_ps(outArr, v);
+                left[i] = outArr[0];
+                if (right) right[i] = outArr[1];
             }
-
-            left[i] = inL;
-            if (right) right[i] = inR;
         }
+    }
+
+    float getMagnitudeDb(float freqHz) const {
+        if (!subCutEnabled) return 0.0f;
+        return subHp1.getMagnitudeDb(freqHz, sr) + subHp2.getMagnitudeDb(freqHz, sr);
     }
 
 private:
     void updateFilters() {
         // Cascaded Butterworth HP filters for steep subsonic roll-off
-        subHpL1.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
-        subHpL2.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
-        subHpR1.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
-        subHpR2.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
+        subHp1.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
+        subHp2.setParams(FilterType::HighPass, sr, subCutHz, 0.7071f, 0.0f);
 
         // Linkwitz-Riley crossover (Q = 0.5 for flat amplitude recombination)
-        crossoverLpL.setParams(FilterType::LowPass, sr, crossoverHz, 0.5f, 0.0f);
-        crossoverLpR.setParams(FilterType::LowPass, sr, crossoverHz, 0.5f, 0.0f);
-        crossoverHpL.setParams(FilterType::HighPass, sr, crossoverHz, 0.5f, 0.0f);
-        crossoverHpR.setParams(FilterType::HighPass, sr, crossoverHz, 0.5f, 0.0f);
+        crossoverLp.setParams(FilterType::LowPass, sr, crossoverHz, 0.5f, 0.0f);
+        crossoverHp.setParams(FilterType::HighPass, sr, crossoverHz, 0.5f, 0.0f);
     }
 
     float sr = 44100.0f;
@@ -99,10 +99,8 @@ private:
     bool subCutEnabled = true;
     bool monoEnabled = true;
 
-    Biquad subHpL1, subHpL2;
-    Biquad subHpR1, subHpR2;
-    Biquad crossoverLpL, crossoverLpR;
-    Biquad crossoverHpL, crossoverHpR;
+    StereoBiquad subHp1, subHp2;
+    StereoBiquad crossoverLp, crossoverHp;
 };
 
 } // namespace Asster
