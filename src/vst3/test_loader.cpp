@@ -195,9 +195,14 @@ int main(int argc, char* argv[]) {
         tresult outArrRes = processor->getBusArrangement(kOutput, 0, outArr);
         printf("Bus Arrangements: inRes=%d (arr=0x%llX), outRes=%d (arr=0x%llX)\n", inArrRes, inArr, outArrRes, outArr);
 
-        // Process a dummy block
-        float inL[512] = {0.5f};
-        float inR[512] = {-0.5f};
+        // Process 2 blocks of 512 samples (-12 dBFS 1 kHz sine) to clear lookahead latency
+        float inL[512] = {0};
+        float inR[512] = {0};
+        for (int i = 0; i < 512; ++i) {
+            float s = 0.25f * std::sin(2.0f * 3.14159265f * 1000.0f * i / 44100.0f);
+            inL[i] = s;
+            inR[i] = s;
+        }
         float outL[512] = {0};
         float outR[512] = {0};
         float* inChs[2] = { inL, inR };
@@ -249,7 +254,24 @@ int main(int argc, char* argv[]) {
         data.processContext = &procCtx;
 
         res = processor->process(data);
-        printf("processor->process result: %d (outL[0]=%.3f, outR[0]=%.3f)\n", res, outL[0], outR[0]);
+        for (int i = 0; i < 512; ++i) {
+            float s = 0.25f * std::sin(2.0f * 3.14159265f * 1000.0f * (i + 512) / 44100.0f);
+            inL[i] = s;
+            inR[i] = s;
+        }
+        res = processor->process(data);
+        float outPeak = 0.0f;
+        for (int i = 0; i < 512; ++i) {
+            float aL = std::abs(outL[i]);
+            float aR = std::abs(outR[i]);
+            if (aL > outPeak) outPeak = aL;
+            if (aR > outPeak) outPeak = aR;
+        }
+        printf("processor->process result: %d (outL[0]=%.3f, outR[0]=%.3f, outPeak=%.4f)\n", res, outL[0], outR[0], outPeak);
+        if (outPeak < 0.30f || outPeak > 0.96f) {
+            printf("ERROR: Unexpected VST3 output peak %.4f (expected 0.30..0.96)!\n", outPeak);
+            return 1;
+        }
         if (eventOuts > 0) {
             printf("  Dispatched output events count: %d\n", mockOutEvents.getEventCount());
         }

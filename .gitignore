@@ -1,6 +1,6 @@
 # Build output directories
 bin/
-dist/
+dist/package/
 
 # Release archives
 *.zip
@@ -19,6 +19,12 @@ dist/
 *.exp
 *.ilk
 *.pdb
+
+# Track release artifacts in dist/
+!dist/
+!dist/*.dll
+!dist/*.vst3
+!dist/*.zip
 
 # Editor & IDE files
 .vscode/

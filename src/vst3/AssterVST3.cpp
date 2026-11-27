@@ -138,11 +138,12 @@ public:
 
     void on_parameter(uint32_t index, float value, uint32_t /*mode*/) override {
         if (index < Asster::NUM_PARAMS) {
-            const auto* defs = Asster::getParameterDefs();
-            float denorm = defs[index].minVal + value * (defs[index].maxVal - defs[index].minVal);
-            engine.setParameter(index, denorm);
+            engine.setParameter(index, value);
             if (activeEditor) {
-                activeEditor->updateParameterFromHost(index, value);
+                const auto* defs = Asster::getParameterDefs();
+                float range = defs[index].maxVal - defs[index].minVal;
+                float norm = (range > 0.0f) ? std::clamp((value - defs[index].minVal) / range, 0.0f, 1.0f) : 0.0f;
+                activeEditor->updateParameterFromHost(index, norm);
             }
         }
     }

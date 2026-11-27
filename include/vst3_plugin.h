@@ -465,6 +465,7 @@ private:
                 double value = 0;
                 int32_t pointcount = paramQueue->getPointCount();
                 paramQueue->getPoint(pointcount-1,offset,value); // last point
+                MParameterValues[id] = static_cast<float>(value);
                 VST3_Parameter* param = MDescriptor->parameters[id];
                 if (param) value = param->from01(value);
                 on_parameter(id,value,0);
